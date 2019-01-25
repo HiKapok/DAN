@@ -58,8 +58,8 @@ All the codes was tested under TensorFlow 1.8, Python 3.5, Ubuntu 16.04 with CUD
 
 ![](figs/DAN.png "DAN")
 ![](figs/FPN.png "FPN")
-![](figs/CIM.png "CIM")
 ![](figs/Deform.png "Deform")
+![](figs/CIM.png "CIM")
 
 ## ##
 ## Results
