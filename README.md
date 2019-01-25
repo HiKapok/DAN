@@ -56,9 +56,13 @@ All the codes was tested under TensorFlow 1.8, Python 3.5, Ubuntu 16.04 with CUD
 ## ##
 ## Framework
 
+The whole framework:
 ![](figs/DAN.png "DAN")
+Low-level FPN:
 ![](figs/FPN.png "FPN")
+Context module V2:
 ![](figs/Deform.png "Deform")
+Context module V1:
 ![](figs/CIM.png "CIM")
 
 ## ##
@@ -75,8 +79,11 @@ Reproduced results are list as follows:
 
 The performance of PyramidBox could be further improved by using transposed convolution in LFPN and tuning the weight of losses. While the training peroid is too long to perform more experiments.
 
+Easy:
 ![](demo/easy.png "easy")
+Medium:
 ![](demo/medium.png "medium")
+Hard:
 ![](demo/hard.png "hard")
 
 You can download the trained model of DAN from [GoogleDrive](https://drive.google.com/open?id=1m1FsB4eym81tD1WtIQL5KRi7MVDJRCWo).
