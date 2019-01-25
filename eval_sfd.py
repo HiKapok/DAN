@@ -42,7 +42,7 @@ tf.app.flags.DEFINE_string(
     'debug_dir', './sfd_debug/',
     'The directory where the detected images are stored.')
 tf.app.flags.DEFINE_string(
-    'data_dir', '/data2/home/changanwang/widerface',
+    'data_dir', 'WIDER_ROOT',
     'The directory where the dataset input data is stored.')
 tf.app.flags.DEFINE_string(
     'subset', 'val', #val or test

@@ -294,6 +294,47 @@ class VGG16Backbone(object):
     #         return list(reversed(output_layers))
 
 
+    # def build_lfpn(self, feature_layers, skip_last=3, name=None):
+    #     output_layers = []
+    #     with tf.variable_scope(name, 'lfpn'):
+    #         axis = -1 if self._data_format == 'channels_last' else 1
+    #         up_sampling = None
+
+    #         for ind in range(skip_last, 0, -1):
+    #         #for ind, featmap in enumerate(reversed(feature_layers[:(skip_last + 1)])):
+    #             with tf.variable_scope('fpn_{}'.format(ind - 1)):
+    #                 top_channels = feature_layers[ind].get_shape().as_list()[axis]
+    #                 down_channels = feature_layers[ind-1].get_shape().as_list()[axis]
+
+    #                 if up_sampling is None:
+    #                     up_sampling = feature_layers[ind]
+
+    #                 lateral = tf.layers.conv2d(feature_layers[ind-1], down_channels, (1, 1), strides=1,
+    #                                     name='lateral', use_bias=True, padding='same',
+    #                                     data_format=self._data_format, activation=None,
+    #                                     kernel_initializer=self._conv_initializer(),
+    #                                     bias_initializer=tf.zeros_initializer(), reuse=None)
+    #                 if self._data_format == 'channels_first':
+    #                     up_sampling_shape = tf.shape(lateral)[-2:]
+    #                     up_sampling = tf.transpose(up_sampling, [0, 2, 3, 1], name='trans')
+    #                 else:
+    #                     up_sampling_shape = tf.shape(lateral)[1:-1]
+
+    #                 trans_conv_weight = tf.get_variable('upsample_conv/weight', [3, 3, down_channels, top_channels], initializer=self._conv_initializer())
+    #                 up_sampling = tf.nn.conv2d_transpose(up_sampling, trans_conv_weight, output_shape=[tf.shape(lateral)[0], up_sampling_shape[0], up_sampling_shape[1], down_channels], strides=[1, 2, 2, 1])
+
+    #                 if self._data_format == 'channels_first':
+    #                     up_sampling = tf.transpose(up_sampling, [0, 3, 1, 2], name='trans_inv')
+    #                 up_sampling = lateral + up_sampling
+    #                 featmap = tf.layers.conv2d(up_sampling, 256, (3, 3), strides=1,
+    #                                     name='fused_conv', use_bias=True, padding='same',
+    #                                     data_format=self._data_format, activation=None,
+    #                                     kernel_initializer=self._conv_initializer(),
+    #                                     bias_initializer=tf.zeros_initializer(), reuse=None)
+    #                 output_layers.append(featmap)
+    #         output_layers = list(reversed(output_layers)) + feature_layers[skip_last:]
+    #         return output_layers
+
 
     def build_lfpn(self, feature_layers, skip_last=3, name=None):
         output_layers = []
@@ -811,7 +852,7 @@ class VGG16Backbone(object):
                                 bias_initializer=tf.zeros_initializer(), reuse=reuse)
             ###### branch2
             branch2_avg_pool = tf.layers.average_pooling2d(features, (2, 2), 1, padding='same',
-                            data_format=self._data_format, name='branch2_avg_pool')
+                                data_format=self._data_format, name='branch2_avg_pool')
             branch2_conv_1x1 = tf.layers.conv2d(branch2_avg_pool, 64, (1, 1), strides=1,
                                 name='branch2_conv_1x1', use_bias=True, padding='same',
                                 dilation_rate=(1, 1),
@@ -908,6 +949,50 @@ class VGG16Backbone(object):
                                 bias_initializer=tf.zeros_initializer(), reuse=reuse)
                 feat = tf.concat([conv_stage1, conv_residual], axis=axis)
                 feat = self.se_inception_block(feat, name='predict_stage2_{}'.format(ind), reuse=tf.AUTO_REUSE)
+                feature_maps.append(feat)
+
+            return feature_maps
+
+    def get_features_stage1_conv_only(self, feature_layers, name=None, reuse=None):
+        with tf.variable_scope(name, 'prediction_modules_stage1', reuse=tf.AUTO_REUSE):
+            feature_maps = []
+            axis = -1 if self._data_format == 'channels_last' else 1
+            for ind, feat in enumerate(feature_layers):
+                top_channels = feat.get_shape().as_list()[axis]
+                feat = tf.layers.conv2d(feat, top_channels, (3, 3), use_bias=True,
+                                name='predict_stage1_conv{}'.format(ind), strides=(1, 1),
+                                padding='same', data_format=self._data_format, activation=tf.nn.relu,
+                                kernel_initializer=self._conv_initializer(),
+                                bias_initializer=tf.zeros_initializer(), reuse=tf.AUTO_REUSE)
+                feature_maps.append(feat)
+
+            return feature_maps
+
+    def get_features_stage2_conv_only(self, feature_stage1, feature_layers, name=None, reuse=None):
+        with tf.variable_scope(name, 'prediction_modules_stage2', reuse=tf.AUTO_REUSE):
+            feature_maps = []
+            axis = -1 if self._data_format == 'channels_last' else 1
+            for ind, feat in enumerate(feature_layers):
+                top_channels = feat.get_shape().as_list()[axis]
+                feat_stage1 = tf.stop_gradient(feature_stage1[ind])
+                conv_stage1 = tf.layers.conv2d(feat_stage1, top_channels//3, (1, 1), strides=1,
+                                name='satge1_conv_1x1_{}'.format(ind), use_bias=True, padding='same',
+                                dilation_rate=(1, 1),
+                                data_format=self._data_format, activation=tf.nn.relu,
+                                kernel_initializer=self._conv_initializer(),
+                                bias_initializer=tf.zeros_initializer(), reuse=reuse)
+                conv_residual= tf.layers.conv2d(feat, top_channels - top_channels//3, (1, 1), strides=1,
+                                name='residual_conv_1x1_{}'.format(ind), use_bias=True, padding='same',
+                                dilation_rate=(1, 1),
+                                data_format=self._data_format, activation=tf.nn.relu,
+                                kernel_initializer=self._conv_initializer(),
+                                bias_initializer=tf.zeros_initializer(), reuse=reuse)
+                feat = tf.concat([conv_stage1, conv_residual], axis=axis)
+                feat = tf.layers.conv2d(feat, top_channels, (3, 3), use_bias=True,
+                                name='predict_stage2_conv{}'.format(ind), strides=(1, 1),
+                                padding='same', data_format=self._data_format, activation=tf.nn.relu,
+                                kernel_initializer=self._conv_initializer(),
+                                bias_initializer=tf.zeros_initializer(), reuse=tf.AUTO_REUSE)
                 feature_maps.append(feat)
 
             return feature_maps

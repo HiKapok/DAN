@@ -288,7 +288,7 @@ class AnchorEncoder(object):
             #overlap_matrix = tf.Print(overlap_matrix, [tf.shape(overlap_matrix)])
             #matched_gt, gt_scores = custom_op.small_mining_match(overlap_matrix, 0., self._rpn_negtive_threshold, self._rpn_positive_threshold, 5, 0.35)
             if match_mining:
-                matched_gt, gt_scores = custom_op.small_mining_match(overlap_matrix, 0., self._ignore_threshold, self._positive_threshold, 6, 0.2)
+                matched_gt, gt_scores = custom_op.small_mining_match(overlap_matrix, 0., self._ignore_threshold, self._positive_threshold, 6, 0.3)
             else:
                 matched_gt, gt_scores = do_dual_max_match(overlap_matrix, self._ignore_threshold, self._positive_threshold)
             #matched_gt = tf.Print(matched_gt, [tf.shape(matched_gt)], summarize=1000)
@@ -349,7 +349,7 @@ class AnchorEncoder(object):
             #overlap_matrix = tf.Print(overlap_matrix, [tf.shape(overlap_matrix)])
             #matched_gt, gt_scores = custom_op.small_mining_match(overlap_matrix, 0., self._rpn_negtive_threshold, self._rpn_positive_threshold, 5, 0.35)
             if match_mining:
-                matched_gt, gt_scores = custom_op.small_mining_match(overlap_matrix, 0., ignore_threshold, positive_threshold, 6, 0.25)
+                matched_gt, gt_scores = custom_op.small_mining_match(overlap_matrix, 0., ignore_threshold, positive_threshold, 6, 0.3)
             else:
                 matched_gt, gt_scores = do_dual_max_match(overlap_matrix, ignore_threshold, positive_threshold)
             #matched_gt = tf.Print(matched_gt, [tf.shape(matched_gt)], summarize=1000)

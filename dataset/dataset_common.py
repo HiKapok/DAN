@@ -52,6 +52,7 @@ def slim_get_batch(num_classes, batch_size, split_name, file_pattern, num_reader
         raise ValueError('split name %s was not recognized.' % split_name)
 
     file_pattern = file_pattern.format(split_name)
+    #print(file_pattern)
     # Features in Pascal VOC TFRecords.
     keys_to_features = {
         'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),

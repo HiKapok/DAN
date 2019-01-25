@@ -44,7 +44,7 @@ tf.app.flags.DEFINE_float(
     'gpu_memory_fraction', 1., 'GPU memory fraction to use.')
 # scaffold related configuration
 tf.app.flags.DEFINE_string(
-    'data_dir', '/data2/home/changanwang/widerface/tfrecords2',
+    'data_dir', './dataset/tfrecords',
     'The directory where the dataset input data is stored.')
 tf.app.flags.DEFINE_integer(
     'num_classes', 2, 'Number of classes to use in the dataset.')
@@ -205,7 +205,7 @@ def input_pipeline(dataset_pattern='train-*', is_training=True, batch_size=FLAGS
 
         image, filename, shape, loc_targets, cls_targets, match_scores, _ = dataset_common.slim_get_batch(FLAGS.num_classes,
                                                                                 batch_size,
-                                                                                ('train' if is_training else 'val'),
+                                                                                ('train' if is_training else 'valid'),
                                                                                 os.path.join(FLAGS.data_dir, dataset_pattern),
                                                                                 FLAGS.num_readers,
                                                                                 FLAGS.num_preprocessing_threads,
@@ -510,7 +510,7 @@ def main(_):
 
     #hook = tf.train.ProfilerHook(save_steps=50, output_dir='.', show_memory=True)
     tf.logging.info('Starting a training cycle.')
-    sfd_detector.train(input_fn=input_pipeline(dataset_pattern='train-*', is_training=True, batch_size=FLAGS.batch_size),
+    sfd_detector.train(input_fn=input_pipeline(dataset_pattern='{}-*', is_training=True, batch_size=FLAGS.batch_size),
                     hooks=[logging_hook], max_steps=FLAGS.max_number_of_steps)
     tf.logging.info('Finished runing at {}'.format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 

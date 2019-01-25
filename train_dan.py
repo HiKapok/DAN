@@ -34,7 +34,7 @@ from utility import custom_op
 
 # hardware related configuration
 tf.app.flags.DEFINE_integer(
-    'num_readers', 12,
+    'num_readers', 24,
     'The number of parallel readers that read data from the dataset.')
 tf.app.flags.DEFINE_integer(
     'num_preprocessing_threads', 48,
@@ -46,7 +46,7 @@ tf.app.flags.DEFINE_float(
     'gpu_memory_fraction', 1., 'GPU memory fraction to use.')
 # scaffold related configuration
 tf.app.flags.DEFINE_string(
-    'data_dir', '/data1/home/changanwang/widerface/tfrecords',
+    'data_dir', './dataset/tfrecords',
     'The directory where the dataset input data is stored.')
 tf.app.flags.DEFINE_integer(
     'num_classes', 2, 'Number of classes to use in the dataset.')
@@ -63,7 +63,7 @@ tf.app.flags.DEFINE_integer(
     'save_checkpoints_secs', 7200, # not used
     'The frequency with which the model is saved, in seconds.')
 tf.app.flags.DEFINE_integer(
-    'save_checkpoints_steps', 5000,
+    'save_checkpoints_steps', 10000,
     'The frequency with which the model is saved, in steps.')
 # model related configuration
 tf.app.flags.DEFINE_integer(
@@ -79,7 +79,7 @@ tf.app.flags.DEFINE_integer(
     'batch_size', 16,
     'Batch size for training and evaluation.')
 tf.app.flags.DEFINE_string(
-    'data_format', 'channels_first', # 'channels_first' or 'channels_last'
+    'data_format', 'channels_last', # 'channels_first' or 'channels_last'
     'A flag to override the data format used in the model. channels_first '
     'provides a performance boost on GPU but is not always compatible '
     'with CPU. If left unspecified, the data format will be chosen '
@@ -87,9 +87,9 @@ tf.app.flags.DEFINE_string(
 tf.app.flags.DEFINE_float(
     'negative_ratio', 3., 'Negative ratio in the loss function.')
 tf.app.flags.DEFINE_float(
-    'match_threshold', 0.5, 'Matching threshold in the loss function.')
+    'match_threshold', 0.35, 'Matching threshold in the loss function.')
 tf.app.flags.DEFINE_float(
-    'neg_threshold', 0.5, 'Matching threshold for the negtive examples in the loss function.')
+    'neg_threshold', 0.35, 'Matching threshold for the negtive examples in the loss function.')
 # optimizer related configuration
 tf.app.flags.DEFINE_integer(
     'tf_random_seed', 20180817, 'Random seed for TensorFlow initializers.')
@@ -104,7 +104,7 @@ tf.app.flags.DEFINE_float(
     'The minimal end learning rate used by a polynomial decay learning rate.')
 # for learning rate piecewise_constant decay
 tf.app.flags.DEFINE_string(
-    'decay_boundaries', '3000, 80000, 100000',
+    'decay_boundaries', '50, 80000, 100000',
     'Learning rate decay boundaries by global_step (comma-separated list).')
 tf.app.flags.DEFINE_string(
     'lr_decay_factors', '0.1, 1, 0.1, 0.01',
@@ -120,7 +120,7 @@ tf.app.flags.DEFINE_string(
     'model_scope', 'dan',
     'Model scope name used to replace the name_scope in checkpoint.')
 tf.app.flags.DEFINE_string(
-    'checkpoint_exclude_scopes', 'dan/predict_face, dan/predict_cascade, dan/additional_layers, dan/l2_norm_layer_3, dan/l2_norm_layer_4, dan/l2_norm_layer_5, dan/lfpn',
+    'checkpoint_exclude_scopes', 'dan/predict_face, dan/prediction_modules_stage1, dan/prediction_modules_stage2, dan/predict_cascade, dan/additional_layers, dan/l2_norm_layer_3, dan/l2_norm_layer_4, dan/l2_norm_layer_5, dan/lfpn, dan/lfpn_stage1, dan/lfpn_stage2',
     'Comma-separated list of scopes of variables to exclude when restoring from a checkpoint.')
 tf.app.flags.DEFINE_boolean(
     'ignore_missing_vars', True,
@@ -180,7 +180,7 @@ def input_pipeline(dataset_pattern='train-*', is_training=True, batch_size=FLAGS
 
         all_anchor_scales = [(16.,), (32.,), (64.,), (128.,), (256.,), (512.,)]
         all_extra_scales = [(), (), (), (), (), ()]
-        all_anchor_ratios = [(1.,), (1.,), (1.,), (1.,), (1.,), (1.,)]
+        all_anchor_ratios = [(0.8,), (0.8,), (0.8,), (0.8,), (0.8,), (0.8,)]
         all_layer_shapes = [(160, 160), (80, 80), (40, 40), (20, 20), (10, 10), (5, 5)]
         all_layer_strides = [4, 8, 16, 32, 64, 128]
         offset_list = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
@@ -207,7 +207,7 @@ def input_pipeline(dataset_pattern='train-*', is_training=True, batch_size=FLAGS
 
         image, filename, shape, loc_targets, cls_targets, match_scores, matched_gt = dataset_common.slim_get_batch(FLAGS.num_classes,
                                                                                 batch_size,
-                                                                                ('train' if is_training else 'val'),
+                                                                                ('train' if is_training else 'valid'),
                                                                                 os.path.join(FLAGS.data_dir, dataset_pattern),
                                                                                 FLAGS.num_readers,
                                                                                 FLAGS.num_preprocessing_threads,
@@ -354,7 +354,7 @@ def reshape_pred(batch_size, cls_pred, location_pred, data_format, name=None):
 
         return cls_pred, location_pred
 
-def anchor_routing(decoded_bbox, gt_bboxes, gt_lables, easy_mask, feat_height, feat_width, feat_strides, all_num_anchors_depth, num_anchors_per_layer, threshold_per_layer):
+def anchor_routing(decoded_bbox, gt_bboxes, gt_lables, easy_mask, feat_height, feat_width, feat_strides, all_num_anchors_depth, num_anchors_per_layer, threshold_per_layer, ignore_threshold_per_layer):
     num_anchors_per_layer = tf.stack(num_anchors_per_layer)
     #print(num_anchors_per_layer)
     def impl_anchor_routing(_decoded_bbox, _gt_bboxes, _gt_lables, _easy_mask):
@@ -369,7 +369,7 @@ def anchor_routing(decoded_bbox, gt_bboxes, gt_lables, easy_mask, feat_height, f
             with tf.name_scope('routing_{}'.format(ind)):
                 with tf.device('/cpu:0'):
                     #decoded_bbox_list[ind] = tf.Print(decoded_bbox_list[ind], [tf.shape(decoded_bbox_list[ind]), tf.shape(gt_bboxes_list[ind]), tf.shape(gt_lables_list[ind]), tf.shape(easy_mask_list[ind]), feat_height[ind], feat_width[ind], all_num_anchors_depth[ind], feat_strides[ind]])
-                    mask_out, decode_out = custom_op.dynamic_anchor_routing(decoded_bbox_list[ind], gt_bboxes_list[ind], gt_lables_list[ind], easy_mask_list[ind], feat_height[ind], feat_width[ind], all_num_anchors_depth[ind], feat_strides[ind], FLAGS.train_image_size, FLAGS.train_image_size, True, threshold_per_layer[ind])
+                    mask_out, decode_out = custom_op.dynamic_anchor_routing(decoded_bbox_list[ind], gt_bboxes_list[ind], gt_lables_list[ind], easy_mask_list[ind], feat_height[ind], feat_width[ind], all_num_anchors_depth[ind], feat_strides[ind], FLAGS.train_image_size, FLAGS.train_image_size, True, threshold_per_layer[ind], ignore_threshold_per_layer[ind])
                 mask_out_list.append(mask_out)
                 decode_out_list.append(decode_out)
 
@@ -414,51 +414,52 @@ def dan_model_fn(features, labels, mode, params):
         #print(feature_layers)
         #print(feature_layers), dan/
         feature_layers = backbone.build_lfpn(feature_layers, skip_last=3)
-        location_pred, cls_pred = backbone.get_se_predict_module(feature_layers, [1] * len(feature_layers),
+        feature_layers_stage1 = backbone.get_features_stage1(feature_layers, name='prediction_modules_stage1')
+        feature_layers_stage1 = backbone.build_lfpn(feature_layers_stage1, skip_last=3, name='lfpn_stage1')
+        location_pred, cls_pred = backbone.get_predict_module(feature_layers_stage1, [1] * len(feature_layers),
                                         [1] + [1] * (len(feature_layers) - 1), all_num_anchors_depth, name='predict_face')
         cls_pred, location_pred = reshape_pred(tf.shape(features)[0], cls_pred, location_pred, params['data_format'], name='face_pred_reshape')
 
-        final_location_pred, final_cls_pred = backbone.get_se_predict_module(feature_layers, [1] * len(feature_layers),
+        feature_layers_stage2 = backbone.get_features_stage2(feature_layers_stage1, feature_layers, name='prediction_modules_stage2')
+        feature_layers_stage2 = backbone.build_lfpn(feature_layers_stage2, skip_last=3, name='lfpn_stage2')
+        final_location_pred, final_cls_pred = backbone.get_predict_module(feature_layers_stage2, [1] * len(feature_layers),
                                         [3] + [1] * (len(feature_layers) - 1), all_num_anchors_depth, name='predict_cascade')
         final_cls_pred, final_location_pred = reshape_pred(tf.shape(features)[0], final_cls_pred, final_location_pred, params['data_format'], name='cascade_pred_reshape')
 
-    with tf.device('/cpu:0'):
-        with tf.control_dependencies([cls_pred, location_pred]):
-            with tf.name_scope('post_forward'):
-                bboxes_pred = decode_fn(tf.reshape(location_pred, [tf.shape(features)[0], -1, 4]))
-                if params['data_format'] == 'channels_first':
-                    feat_height_list = [tf.shape(feat)[2] for feat in feature_layers]
-                    feat_width_list = [tf.shape(feat)[3] for feat in feature_layers]
-                else:
-                    feat_height_list = [tf.shape(feat)[1] for feat in feature_layers]
-                    feat_width_list = [tf.shape(feat)[2] for feat in feature_layers]
+    with tf.name_scope('post_forward'):
+        bboxes_pred = decode_fn(tf.reshape(location_pred, [tf.shape(features)[0], -1, 4]))
+        if params['data_format'] == 'channels_first':
+            feat_height_list = [tf.shape(feat)[2] for feat in feature_layers]
+            feat_width_list = [tf.shape(feat)[3] for feat in feature_layers]
+        else:
+            feat_height_list = [tf.shape(feat)[1] for feat in feature_layers]
+            feat_width_list = [tf.shape(feat)[2] for feat in feature_layers]
 
-                final_mask, final_loc_targets = anchor_routing(bboxes_pred, matched_gt, tf.to_float(cls_targets > 0),
-                                            tf.to_int32(tf.reshape(tf.nn.softmax(cls_pred, name='pred_score')[:, -1], [tf.shape(features)[0], -1]) > 0.03),
-                                            feat_height_list, feat_width_list, [4, 8, 16, 32, 64, 128], all_num_anchors_depth, num_anchors_per_layer, [0.4, 0.5, 0.6, 0.65, 0.7, 0.75])
+        final_mask, final_loc_targets = anchor_routing(bboxes_pred, matched_gt, tf.to_float(cls_targets > 0),
+                                    tf.to_int32(tf.reshape(tf.nn.softmax(cls_pred, name='pred_score')[:, -1], [tf.shape(features)[0], -1]) > 0.03),
+                                    feat_height_list, feat_width_list, [4, 8, 16, 32, 64, 128], all_num_anchors_depth, num_anchors_per_layer, [0.4, 0.5, 0.6, 0.7, 0.8, 0.9], [0.35, 0.4, 0.45, 0.5, 0.55, 0.6])
 
-                # bboxes_pred = decode_fn(tf.reshape(location_pred, [tf.shape(features)[0], -1, 4]))
-                # #cls_targets = tf.Print(cls_targets, [tf.shape(bboxes_pred[0]),tf.shape(bboxes_pred[1]),tf.shape(bboxes_pred[2]),tf.shape(bboxes_pred[3])])
-                # bboxes_pred = tf.reshape(bboxes_pred, [-1, 4])
+        # bboxes_pred = decode_fn(tf.reshape(location_pred, [tf.shape(features)[0], -1, 4]))
+        # #cls_targets = tf.Print(cls_targets, [tf.shape(bboxes_pred[0]),tf.shape(bboxes_pred[1]),tf.shape(bboxes_pred[2]),tf.shape(bboxes_pred[3])])
+        # bboxes_pred = tf.reshape(bboxes_pred, [-1, 4])
 
-                ############## hard negtive mining for each sample
-                cls_pred, location_pred, flaten_cls_targets, flaten_loc_targets = mining_hard_neg(tf.shape(features)[0], cls_pred, location_pred, cls_targets, match_scores, loc_targets, name='mining_0')
+        ############## hard negtive mining for each sample
+        cls_pred, location_pred, flaten_cls_targets, flaten_loc_targets = mining_hard_neg(tf.shape(features)[0], cls_pred, location_pred, cls_targets, match_scores, loc_targets, name='mining_0')
 
-                final_cls_pred, final_location_pred, \
-                final_flaten_cls_targets, final_flaten_loc_targets = mining_hard_neg(tf.shape(features)[0], final_cls_pred, final_location_pred,
-                                                                final_mask, tf.ones_like(final_mask, dtype=tf.float32),
-                                                                final_loc_targets * tf.expand_dims(tf.expand_dims(tf.constant([10., 10., 5., 5.], dtype=tf.float32) * 1., axis=0), axis=0), name='mining_1')
+        final_cls_pred, final_location_pred, \
+        final_flaten_cls_targets, final_flaten_loc_targets = mining_hard_neg(tf.shape(features)[0], final_cls_pred, final_location_pred,
+                                                        final_mask, tf.ones_like(final_mask, dtype=tf.float32),
+                                                        final_loc_targets * tf.expand_dims(tf.expand_dims(tf.constant([10., 10., 5., 5.], dtype=tf.float32) * 2., axis=0), axis=0), name='mining_1')
 
-                predictions = {
-                            'classes': tf.argmax(cls_pred, axis=-1),
-                            'probabilities': tf.reduce_max(tf.nn.softmax(cls_pred, name='softmax_tensor'), axis=-1)}
+        predictions = {'classes': tf.argmax(cls_pred, axis=-1),
+                    'probabilities': tf.reduce_max(tf.nn.softmax(cls_pred, name='softmax_tensor'), axis=-1)}
 
-                cls_accuracy = tf.metrics.accuracy(flaten_cls_targets, predictions['classes'])
-                metrics = {'cls_accuracy': cls_accuracy}
+        cls_accuracy = tf.metrics.accuracy(flaten_cls_targets, predictions['classes'])
+        metrics = {'cls_accuracy': cls_accuracy}
 
-                # Create a tensor named train_accuracy for logging purposes.
-                tf.identity(cls_accuracy[1], name='cls_accuracy')
-                tf.summary.scalar('cls_accuracy', cls_accuracy[1])
+        # Create a tensor named train_accuracy for logging purposes.
+        tf.identity(cls_accuracy[1], name='cls_accuracy')
+        tf.summary.scalar('cls_acc', cls_accuracy[1])
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
@@ -469,23 +470,23 @@ def dan_model_fn(features, labels, mode, params):
     cross_entropy = tf.losses.sparse_softmax_cross_entropy(labels=flaten_cls_targets, logits=cls_pred) * (params['negative_ratio'] + 1.)
     # Create a tensor named cross_entropy for logging purposes.
     tf.identity(cross_entropy, name='cross_entropy_loss')
-    tf.summary.scalar('cross_entropy_loss', cross_entropy)
+    tf.summary.scalar('ce_loss', cross_entropy)
 
     #loc_loss = tf.cond(n_positives > 0, lambda: modified_smooth_l1(location_pred, tf.stop_gradient(flaten_loc_targets), sigma=1.), lambda: tf.zeros_like(location_pred))
     loc_loss = modified_smooth_l1(location_pred, flaten_loc_targets, sigma=1.)
     #loc_loss = modified_smooth_l1(location_pred, tf.stop_gradient(gtargets))
     loc_loss = tf.reduce_mean(tf.reduce_sum(loc_loss, axis=-1), name='location_loss')
-    tf.summary.scalar('location_loss', loc_loss)
+    tf.summary.scalar('loc_loss', loc_loss)
     tf.losses.add_loss(loc_loss)
 
 
     final_cross_entropy = tf.losses.sparse_softmax_cross_entropy(labels=final_flaten_cls_targets, logits=final_cls_pred) * (params['negative_ratio'] + 1.)
     # Create a tensor named cross_entropy for logging purposes.
     tf.identity(final_cross_entropy, name='final_cross_entropy_loss')
-    tf.summary.scalar('final_cross_entropy_loss', final_cross_entropy)
+    tf.summary.scalar('final_ce_loss', final_cross_entropy)
     final_loc_loss = modified_smooth_l1(final_location_pred, final_flaten_loc_targets, sigma=1.)
     final_loc_loss = tf.reduce_mean(tf.reduce_sum(final_loc_loss, axis=-1), name='final_location_loss')
-    tf.summary.scalar('final_location_loss', final_loc_loss)
+    tf.summary.scalar('final_loc_loss', final_loc_loss)
     tf.losses.add_loss(final_loc_loss)
 
     l2_loss_vars = []
@@ -508,7 +509,7 @@ def dan_model_fn(features, labels, mode, params):
                                                     lr_values)
         truncated_learning_rate = tf.maximum(learning_rate, tf.constant(params['end_learning_rate'], dtype=learning_rate.dtype), name='learning_rate')
         # Create a tensor named learning_rate for logging purposes.
-        tf.summary.scalar('learning_rate', truncated_learning_rate)
+        tf.summary.scalar('lr', truncated_learning_rate)
 
         gradient_multipliers = {}
         for var in tf.trainable_variables():
@@ -588,7 +589,7 @@ def main(_):
 
     #hook = tf.train.ProfilerHook(save_steps=50, output_dir='.', show_memory=True)
     tf.logging.info('Starting a training cycle.')
-    dan_detector.train(input_fn=input_pipeline(dataset_pattern='train-*', is_training=True, batch_size=FLAGS.batch_size),
+    dan_detector.train(input_fn=input_pipeline(dataset_pattern='{}-*', is_training=True, batch_size=FLAGS.batch_size),
                     hooks=[logging_hook], max_steps=FLAGS.max_number_of_steps)
     tf.logging.info('Finished runing at {}'.format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 

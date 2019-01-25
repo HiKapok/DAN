@@ -39,7 +39,10 @@ tf.app.flags.DEFINE_string(
     'det_dir', './dan_det/',
     'The directory where the dataset input data is stored.')
 tf.app.flags.DEFINE_string(
-    'data_dir', '/data1/home/changanwang/widerface',
+    'debug_dir', './dan_debug/',
+    'The directory where the detected images are stored.')
+tf.app.flags.DEFINE_string(
+    'data_dir', 'WIDER_ROOT',
     'The directory where the dataset input data is stored.')
 tf.app.flags.DEFINE_string(
     'subset', 'val', #val or test
@@ -246,7 +249,7 @@ def write_to_txt(f, det, event, im_name):
     bbox_height = bbox_ymax - bbox_ymin + 1
     bbox_width = bbox_xmax - bbox_xmin + 1
 
-    valid_mask = np.logical_and(np.logical_and((np.ceil(bbox_height) >= 9), (bbox_width > 1)), scores > FLAGS.select_threshold)
+    valid_mask = np.logical_and(np.logical_and((np.ceil(bbox_height) >= 10), (bbox_width > 1)), scores > FLAGS.select_threshold)
 
     f.write('{:s}\n'.format(event[0][0] + '/' + im_name + '.jpg'))
     f.write('{}\n'.format(np.count_nonzero(valid_mask)))
@@ -305,7 +308,7 @@ def main(_):
 
         all_anchor_scales = [(16.,), (32.,), (64.,), (128.,), (256.,), (512.,)]
         all_extra_scales = [(), (), (), (), (), ()]
-        all_anchor_ratios = [(1.,), (1.,), (1.,), (1.,), (1.,), (1.,)]
+        all_anchor_ratios = [(0.8,), (0.8,), (0.8,), (0.8,), (0.8,), (0.8,)]
         all_layer_strides = [4, 8, 16, 32, 64, 128]
         offset_list = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
         with tf.variable_scope(FLAGS.model_scope, default_name=None, values=[features], reuse=tf.AUTO_REUSE):
@@ -338,8 +341,10 @@ def main(_):
                     _, _num_anchors_per_layer = anchor_encoder_decoder.get_anchors_count(anchors_depth[ind], layer_shape, name='get_anchor_count{}'.format(ind))
                     num_anchors_per_layer.append(_num_anchors_per_layer)
 
-            location_pred, cls_pred = backbone.get_se_predict_module(feature_layers, [1] * len(feature_layers),
-                                        [1] + [1] * (len(feature_layers) - 1), anchors_depth, name='predict_face')
+            feature_layers_stage1 = backbone.get_features_stage1(feature_layers, name='prediction_modules_stage1')
+            feature_layers_stage1 = backbone.build_lfpn(feature_layers_stage1, skip_last=3, name='lfpn_stage1')
+            location_pred, cls_pred = backbone.get_predict_module(feature_layers_stage1, [1] * len(feature_layers_stage1),
+                                        [1] + [1] * (len(feature_layers_stage1) - 1), anchors_depth, name='predict_face')
             if FLAGS.data_format == 'channels_first':
                 cls_pred = [tf.transpose(pred, [0, 2, 3, 1]) for pred in cls_pred]
                 location_pred = [tf.transpose(pred, [0, 2, 3, 1]) for pred in location_pred]
@@ -351,8 +356,10 @@ def main(_):
             location_pred = tf.concat(location_pred, axis=0)
 
 
-            final_location_pred, final_cls_pred = backbone.get_se_predict_module(feature_layers, [1] * len(feature_layers),
-                                        [3] + [1] * (len(feature_layers) - 1), anchors_depth, name='predict_cascade')
+            feature_layers_stage2 = backbone.get_features_stage2(feature_layers_stage1, feature_layers, name='prediction_modules_stage2')
+            feature_layers_stage2 = backbone.build_lfpn(feature_layers_stage2, skip_last=3, name='lfpn_stage2')
+            final_location_pred, final_cls_pred = backbone.get_predict_module(feature_layers_stage2, [1] * len(feature_layers_stage2),
+                                        [3] + [1] * (len(feature_layers_stage2) - 1), anchors_depth, name='predict_cascade')
             if FLAGS.data_format == 'channels_first':
                 final_cls_pred = [tf.transpose(pred, [0, 2, 3, 1]) for pred in final_cls_pred]
                 final_location_pred = [tf.transpose(pred, [0, 2, 3, 1]) for pred in final_location_pred]
@@ -363,35 +370,38 @@ def main(_):
             final_cls_pred = tf.nn.softmax(tf.concat(final_cls_pred, axis=0))[:, -1]
             final_location_pred = tf.concat(final_location_pred, axis=0)
 
-        with tf.device('/cpu:0'):
-            bboxes_pred = anchor_encoder_decoder.decode_anchors(location_pred, anchors_ymin, anchors_xmin, anchors_ymax, anchors_xmax)
+        bboxes_pred = anchor_encoder_decoder.decode_anchors(location_pred, anchors_ymin, anchors_xmin, anchors_ymax, anchors_xmax)
 
-            num_anchors_per_layer = tf.stack(num_anchors_per_layer)
-            if FLAGS.data_format == 'channels_first':
-                feat_height_list = [tf.shape(feat)[2] for feat in feature_layers]
-                feat_width_list = [tf.shape(feat)[3] for feat in feature_layers]
-            else:
-                feat_height_list = [tf.shape(feat)[1] for feat in feature_layers]
-                feat_width_list = [tf.shape(feat)[2] for feat in feature_layers]
+        num_anchors_per_layer = tf.stack(num_anchors_per_layer)
+        if FLAGS.data_format == 'channels_first':
+            feat_height_list = [tf.shape(feat)[2] for feat in feature_layers]
+            feat_width_list = [tf.shape(feat)[3] for feat in feature_layers]
+        else:
+            feat_height_list = [tf.shape(feat)[1] for feat in feature_layers]
+            feat_width_list = [tf.shape(feat)[2] for feat in feature_layers]
 
-            decoded_bbox_list = tf.split(bboxes_pred, num_anchors_per_layer, axis=0, name='split_decoded_bbox')
-            gt_bboxes_list = tf.split(final_location_pred / tf.expand_dims(tf.constant([10., 10., 5., 5.], dtype=tf.float32) * 1., axis=0), num_anchors_per_layer, axis=0, name='split_gt_bboxes')
-            gt_lables_list = tf.split(final_cls_pred, num_anchors_per_layer, axis=0, name='split_gt_lables')
-            easy_mask_list = tf.split(tf.to_int32(cls_pred > 0.03), num_anchors_per_layer, axis=0, name='split_easy_mask')
-            mask_out_list = []
-            decode_out_list = []
-            feat_strides = [4, 8, 16, 32, 64, 128]
-            for ind in range(len(anchors_depth)):
-                with tf.name_scope('routing_{}'.format(ind)):
-                    with tf.device('/cpu:0'):
-                        mask_out, decode_out = custom_op.dynamic_anchor_routing(decoded_bbox_list[ind], gt_bboxes_list[ind], gt_lables_list[ind], easy_mask_list[ind], feat_height_list[ind], feat_width_list[ind], anchors_depth[ind], feat_strides[ind], output_shape[0][0], output_shape[0][1], False, 0.05)
-                    mask_out_list.append(mask_out)
-                    decode_out_list.append(decode_out)
+        decoded_bbox_list = tf.split(bboxes_pred, num_anchors_per_layer, axis=0, name='split_decoded_bbox')
+        gt_bboxes_list = tf.split(final_location_pred / tf.expand_dims(tf.constant([10., 10., 5., 5.], dtype=tf.float32) * 2., axis=0), num_anchors_per_layer, axis=0, name='split_gt_bboxes')
+        gt_lables_list = tf.split(final_cls_pred, num_anchors_per_layer, axis=0, name='split_gt_lables')
+        easy_mask_list = tf.split(tf.to_int32(cls_pred > 0.03), num_anchors_per_layer, axis=0, name='split_easy_mask')
+        mask_out_list = []
+        decode_out_list = []
+        feat_strides = [4, 8, 16, 32, 64, 128]
+        for ind in range(len(anchors_depth)):
+            with tf.name_scope('routing_{}'.format(ind)):
+                with tf.device('/cpu:0'):
+                    mask_out, decode_out = custom_op.dynamic_anchor_routing(decoded_bbox_list[ind], gt_bboxes_list[ind], gt_lables_list[ind], easy_mask_list[ind], feat_height_list[ind], feat_width_list[ind], anchors_depth[ind], feat_strides[ind], output_shape[0][0], output_shape[0][1], False, 0.03, 0.0)
+                mask_out_list.append(mask_out)
+                decode_out_list.append(decode_out)
 
-            mask_out = tf.stop_gradient(tf.concat(mask_out_list, axis=0))
-            bboxes_pred = tf.stop_gradient(tf.concat(decode_out_list, axis=0))
+        mask_out = tf.stop_gradient(tf.concat(mask_out_list, axis=0))
+        # bboxes_pred = tf.stop_gradient(tf.concat(decode_out_list, axis=0))
 
-            cls_pred = final_cls_pred * tf.to_float(mask_out)
+        # cls_pred = final_cls_pred * tf.to_float(mask_out)
+        first_stage_post_bbox = tf.split(bboxes_pred, num_anchors_per_layer, axis=0, name='split_first_stage_bbox')[2:]
+        bboxes_pred = tf.concat(first_stage_post_bbox + [tf.stop_gradient(tf.concat(decode_out_list, axis=0))], axis=0)
+        first_stage_post_cls = tf.split(cls_pred, num_anchors_per_layer, axis=0, name='split_first_stage_cls')[2:]
+        cls_pred = tf.concat(first_stage_post_cls + [final_cls_pred * tf.to_float(mask_out)], axis=0)
 
         saver = tf.train.Saver()
         with tf.Session() as sess:
@@ -444,7 +454,8 @@ def main(_):
                     f.close()
                     if num % FLAGS.log_every_n_steps == 0:
                         img_to_draw = draw_toolbox.bboxes_draw_on_img(image, (dets[:, 4] > 0.2).astype(np.int32), dets[:, 4], dets[:, :4], thickness=2)
-                        imsave(os.path.join('./dan_debug/{}.jpg').format(im_name), img_to_draw)
+                        #imsave(os.path.join('./dan_debug/{}.jpg').format(im_name), img_to_draw)
+                        imsave(os.path.join(FLAGS.debug_dir, '{}.jpg'.format(im_name)), img_to_draw)
 
                     #imsave(os.path.join('./debug/{}_{}.jpg').format(index, num), draw_toolbox.absolute_bboxes_draw_on_img(image, (dets[:, 4]>0.1).astype(np.int32), dets[:, 4], dets[:, :4], thickness=2))
                     #break
@@ -456,5 +467,6 @@ def main(_):
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
+  tf.gfile.MakeDirs(FLAGS.debug_dir)
   tf.app.run()
 

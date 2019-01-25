@@ -30,7 +30,9 @@ def get_init_fn_for_scaffold(model_dir, checkpoint_path, model_scope, checkpoint
         exclusion_scopes = [scope.strip() for scope in checkpoint_exclude_scopes.split(',')]
 
     variables_to_restore = []
-    for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+
+    for var in (tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES) + tf.get_collection('need_restored')):
+    #for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
         excluded = False
         for exclusion in exclusion_scopes:
             if exclusion in var.op.name:#.startswith(exclusion):
