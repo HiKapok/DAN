@@ -4,7 +4,7 @@ This repository contains the *un-official* reimplementation of several single sh
 
 - [S³FD: Single Shot Scale-invariant Face Detector](https://arxiv.org/pdf/1708.05237.pdf). Click [here](https://github.com/sfzhang15/SFD) for official codes in Caffe (evaluation only). 
 - [PyramidBox: A Context-assisted Single Shot Face Detector](https://arxiv.org/pdf/1803.07737.pdf). Click [here](https://github.com/PaddlePaddle/models/tree/develop/fluid/PaddleCV/face_detection) for official codes in PaddlePaddle. 
-- DAN(Dynamic Anchor routing Network): A novel framework try to conduct inplace cascaded faces detection.
+- DAN(Dynamic Anchor routing Network): A novel framework try to conduct inplace cascaded detection for extreme tiny faces.
 
 ## ##
 ## Usage
@@ -32,7 +32,7 @@ This repository contains the *un-official* reimplementation of several single sh
 	python dataset/convert_tfrecords.py --dataset_directory=WIDER_ROOT --output_directory=./dataset/tfrecords
 	```
 - Download the **pre-trained VGG-16 model (reduced-fc)** from [here](https://drive.google.com/drive/folders/184srhbt8_uvLKeWW_Yo8Mc5wTyc0lJT7) and put them into one sub-directory named 'model' (we support SaverDef.V2 by default, the V1 version is also available for sake of compatibility).
-- Compile custom operations, run following command in directory 'cpp/Deform' and 'cpp/ExtraLib' (ignore this step if you just try S³FD or PyramidBox):
+- Compile custom operations, run following command in directory 'cpp/Deform' and 'cpp/ExtraLib':
 	
 	```sh
 	mkdir build
@@ -82,7 +82,7 @@ Reproduced results are list as follows:
 |  S³FD  |  0.933 |  0.923   |   0.848  | 
 | PyramidBox  |  0.955 |  0.946   |   0.888  |  
 | DAN  |  0.958 | 0.946   |   0.895  | 
-| DAN-Deform  |  0.957 |  0.947   |   0.897  |  
+| DAN-Deform  |  0.957 |  0.947   |   **0.897**  |  
 
 The performance of PyramidBox could be further improved by using transposed convolution in LFPN and tuning the weight of losses. While the training peroid is too long to perform more experiments.
 
